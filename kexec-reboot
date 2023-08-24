@@ -148,6 +148,30 @@ def grub2_kernel_entries(config)
   entries
 end
 
+# Load an entry from the given GRUB 2 loaders/entries/ file
+def grub2_loader_entry(config)
+  for key, value in config.scan(/^([^ ]+) (.*)$/)
+    case key
+    when "title"
+      name = value
+    when "linux"
+      kernel = value
+    when "initrd"
+      initrd = value
+    when "options"
+      uuid = value.scan(/root=UUID=([^ ]+)/)[0][0]
+      cmdline = value
+    end
+  end
+  mount_point = uuid_to_mount_point(uuid)
+  return {
+    :name    => name,
+    :kernel  => "#{mount_point}#{kernel}",
+    :initrd  => "#{mount_point}#{initrd}",
+    :cmdline => cmdline,
+  }
+end
+
 # Load a grub configuration file and process it
 def process_grub_config
   possible_grub_configs = [
@@ -172,8 +196,22 @@ def process_grub_config
       next
     end
   end
-  STDERR.puts("Couldn't find a grub configuration anywhere!\n")
-  exit 1
+  entries = []
+  Dir.glob("/boot/loader/entries/*.conf") { |filename|
+    begin
+      entries.append(grub2_loader_entry(IO::read(filename)))
+      puts "Read GRUB loader entry from #{filename}\n" if $verbose
+    rescue Errno::EACCES
+      STDERR.puts("#{$!}\nYou must be root to run this utility.\n")
+      exit 1
+    end
+  }
+  if entries.empty?
+    STDERR.puts("Couldn't find a grub configuration anywhere!\n")
+    exit 1
+  else
+    return entries
+  end
 end
 
 def kexec(entry)
